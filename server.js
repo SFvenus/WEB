@@ -6,9 +6,9 @@
 * 
 *  https://www.senecacollege.ca/about/policies/academic-integrity-policy.html
 * 
-*  Name: ______________________ Student ID: ______________ Date: ______________
+*  Name: Soheila Fallah Mollamahmoud Student ID: 142016229 Date: 2024-03-30
 *
-*  Published URL: ___________________________________________________________
+*  Published URL: https://average-gold-cod.cyclic.app/
 *
 ********************************************************************************/
 const legoData = require("./modules/legoSets");
