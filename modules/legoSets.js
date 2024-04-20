@@ -1,172 +1,95 @@
 require("dotenv").config();
+const mongoose = require("mongoose");
 
-const Sequelize = require("sequelize");
+mongoose.connect(process.env.DB_CONNECTION_STRING, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
 
-const sequelize = new Sequelize(
-  process.env.DB_DATABASE,
-  process.env.DB_USER,
-  process.env.DB_PASSWORD,
+// Theme model schema
+const themeSchema = new mongoose.Schema(
   {
-    host: process.env.DB_HOST,
-    dialect: "postgres",
-    port: 5432,
-    dialectOptions: {
-      ssl: { rejectUnauthorized: false },
-    },
-  }
-);
-
-const Theme = sequelize.define(
-  "Theme",
-  {
-    id: {
-      type: Sequelize.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    name: Sequelize.STRING,
+    name: String,
   },
-  {
-    createdAt: false, // disable createdAt
-    updatedAt: false, // disable updatedAt
-  }
+  { timestamps: false }
 );
 
-const Set = sequelize.define(
-  "Set",
+const Theme = mongoose.model("Theme", themeSchema);
+
+// Set model schema
+const setSchema = new mongoose.Schema(
   {
-    set_num: {
-      type: Sequelize.STRING,
-      primaryKey: true,
-    },
-    name: Sequelize.STRING,
-    year: Sequelize.INTEGER,
-    num_parts: Sequelize.INTEGER,
+    set_num: { type: String, index: { unique: true } },
+    name: String,
+    year: Number,
+    num_parts: Number,
     theme_id: {
-      type: Sequelize.INTEGER,
-      references: {
-        model: Theme,
-        key: "id",
-      },
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Theme",
     },
-    img_url: Sequelize.STRING,
+    img_url: String,
   },
-  {
-    createdAt: false, // disable createdAt
-    updatedAt: false, // disable updatedAt
-  }
+  { timestamps: false }
 );
 
-Set.belongsTo(Theme, { foreignKey: "theme_id" });
+const Set = mongoose.model("Set", setSchema);
 
 async function initialize() {
-  await sequelize.authenticate();
-  console.log("Connection has been established successfully.");
-
-  await sequelize.sync();
-  console.log("All models were synchronized successfully.");
-
-  const setData = require("../data/setData");
-  const themeData = require("../data/themeData");
-
-  const themesCount = await Theme.count();
-  if (themesCount === 0) {
-    await Theme.bulkCreate(themeData);
-  }
-
-  const setsCount = await Set.count();
-  if (setsCount === 0) {
-    await Set.bulkCreate(setData);
+  try {
+    await mongoose.connection;
+    console.log("Connected to MongoDB");
+  } catch (err) {
+    throw new Error(err.message);
   }
 }
 
-function getAllSets() {
-  return Set.findAll({
-    include: Theme,
-  });
+// CRUD operations adjusted for Mongoose
+async function getAllSets() {
+  return Set.find().populate("theme_id");
 }
 
-function getAllThemes() {
-  return Theme.findAll();
+async function getAllThemes() {
+  return Theme.find();
 }
 
 async function getSetByNum(setNum) {
-  const found = await Set.findByPk(setNum, {
-    include: Theme,
-  });
-
-  if (!found) {
-    throw "Unable to find requested set.";
-  }
-
-  return found;
+  const set = await Set.findOne({ set_num: setNum }).populate("theme_id");
+  if (!set) throw new Error("Unable to find requested set");
+  return set;
 }
 
 async function getSetsByTheme(theme) {
-  const sets = await Set.findAll({
-    include: Theme,
-    where: {
-      "$Theme.name$": {
-        [Sequelize.Op.iLike]: `%${theme}%`,
-      },
-    },
-  });
-
-  if (sets.length === 0) {
-    throw "Unable to find requested sets.";
-  }
-
+  const themes = await Theme.find({ name: new RegExp(theme, "i") });
+  const sets = await Set.find({
+    theme_id: { $in: themes.map((t) => t._id) },
+  }).populate("theme_id");
+  if (!sets.length) throw new Error("Unable to find requested sets");
   return sets;
 }
 
-async function addSet(set) {
-  try {
-    await Set.create(set);
-  } catch (ex) {
-    throw ex.errors[0].message;
-  }
+async function addSet(setData) {
+  const theme = await Theme.findOne({ _id: setData.theme_id });
+  if (!theme) throw new Error("Theme does not exist");
+  await Set.create(setData);
 }
 
 async function editSet(set_num, setData) {
-  try {
-    const [affected_rows] = await Set.update(setData, {
-      where: {
-        set_num: set_num,
-      },
-    });
-
-    if (affected_rows === 0) {
-      throw { errors: [{ message: "Unable to find requested set." }] };
-    }
-  } catch (ex) {
-    throw ex.errors[0].message;
-  }
+  const result = await Set.updateOne({ set_num: set_num }, setData);
+  if (result.matchedCount === 0) throw new Error("Set not found");
 }
 
-async function deleteSet(setNum) {
-  try {
-    const affected_rows = await Set.destroy({
-      where: {
-        set_num: setNum,
-      },
-    });
-
-    if (affected_rows === 0) {
-      throw { errors: [{ message: "Unable to find requested set." }] };
-    }
-  } catch (ex) {
-    throw ex.errors[0].message;
-  }
+async function deleteSet(set_num) {
+  const result = await Set.deleteOne({ set_num: set_num });
+  if (result.deletedCount === 0) throw new Error("Set not found");
 }
 
 module.exports = {
   initialize,
   getAllSets,
-  getAllThemes,
   getSetByNum,
   getSetsByTheme,
-
+  getAllThemes,
   addSet,
-  deleteSet,
   editSet,
+  deleteSet,
 };
